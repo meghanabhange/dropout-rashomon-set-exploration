@@ -1,3 +1,17 @@
+### Updates for running the code with poetry: 
+```
+pip install poetry
+poetry install
+
+cd uci-tabular/
+chmod +x run_experiments.sh
+./run_experiments.sh
+
+cd vision/
+chmod +x run_experiments.sh
+./run_experiments.sh
+```
+
 This is the official Python implementation of the paper 
 <a href="https://openreview.net/forum?id=Sf2A2PUXO3">Dropout-Based Rashomon Set Exploration for Efficient Predictive Multiplicity Estimation</a> (ICLR 2024).
 
