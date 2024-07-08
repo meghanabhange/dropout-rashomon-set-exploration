@@ -14,28 +14,28 @@ import time
 import copy
 
 # configuration parser
-parser = argparse.ArgumentParser(description = "Configuration.")
+parser = argparse.ArgumentParser(description="Configuration.")
 parser.add_argument('--dataroot', type=str, default='../../datasets/')
 parser.add_argument('--resultroot', type=str, default='../results/')
 parser.add_argument('--dataset', type=str, default='cifar10', choices=['cifar10', 'cifar100', 'svhn'])
 parser.add_argument('--model', type=str, default='vgg16', choices=['vgg16', 'vgg16_bn', 'resnet18', 'resnet50', 'alexnet'])
-## training and inference 
-parser.add_argument('--nepoch', type=int, default=10) 
-parser.add_argument('--train_batch_size', type=int, default=100) 
-parser.add_argument('--test_batch_size', type=int, default=1000) 
-parser.add_argument('--trainlr', type=float, default=1e-3) 
-## estimation of predictive multiplicity
-parser.add_argument('--method', type=str, default='sampling', choices=['base', 'sampling', 'dropout', 'awp']) 
-## sampling
+# training and inference
+parser.add_argument('--nepoch', type=int, default=10)
+parser.add_argument('--train_batch_size', type=int, default=100)
+parser.add_argument('--test_batch_size', type=int, default=1000)
+parser.add_argument('--trainlr', type=float, default=1e-3)
+# estimation of predictive multiplicity
+parser.add_argument('--method', type=str, default='sampling', choices=['base', 'sampling', 'dropout', 'awp'])
+# sampling
 parser.add_argument('--sampling_nmodel', type=int, default=100)
-## dropout
+# dropout
 parser.add_argument('--dropoutmethod', type=str, default='bernoulli', choices=['bernoulli', 'gaussian'])
 parser.add_argument('--drp_nmodel', type=int, default=100)
-parser.add_argument('--drp_max_ratio', type=float, default=0.30) 
-parser.add_argument('--ndrp', type=int, default=5) 
-## awp
-parser.add_argument('--awp_eps', type=str, default='') 
-parser.add_argument('--awp_lr', type=float, default=1e-3) 
+parser.add_argument('--drp_max_ratio', type=float, default=0.30)
+parser.add_argument('--ndrp', type=int, default=5)
+# awp
+parser.add_argument('--awp_eps', type=str, default='')
+parser.add_argument('--awp_lr', type=float, default=1e-3)
 args = parser.parse_args()
 configuration_dict = vars(args)
 
@@ -60,6 +60,34 @@ for key in configuration_dict.keys():
 
 log.write('Device: {}\n'.format(device))
 log.flush()
+
+# Fix warnings by using the `weights` parameter
+def fetch_model(log, model_name, output_dim, pre=True):
+    if model_name == 'vgg16':
+        from torchvision.models import vgg16, VGG16_Weights
+        model = vgg16(weights=VGG16_Weights.IMAGENET1K_V1) if pre else vgg16(weights=None)
+        model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, output_dim)
+    elif model_name == 'vgg16_bn':
+        from torchvision.models import vgg16_bn, VGG16_BN_Weights
+        model = vgg16_bn(weights=VGG16_BN_Weights.IMAGENET1K_V1) if pre else vgg16_bn(weights=None)
+        model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, output_dim)
+    elif model_name == 'resnet18':
+        from torchvision.models import resnet18, ResNet18_Weights
+        model = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1) if pre else resnet18(weights=None)
+        model.fc = torch.nn.Linear(model.fc.in_features, output_dim)
+    elif model_name == 'resnet50':
+        from torchvision.models import resnet50, ResNet50_Weights
+        model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1) if pre else resnet50(weights=None)
+        model.fc = torch.nn.Linear(model.fc.in_features, output_dim)
+    elif model_name == 'alexnet':
+        from torchvision.models import alexnet, AlexNet_Weights
+        model = alexnet(weights=AlexNet_Weights.IMAGENET1K_V1) if pre else alexnet(weights=None)
+        model.classifier[6] = torch.nn.Linear(model.classifier[6].in_features, output_dim)
+    else:
+        log.write('Model {} not supported\n'.format(model_name))
+        log.flush()
+        sys.exit()
+    return model
 
 ## loading dataset
 if args.dataset == 'cifar10':

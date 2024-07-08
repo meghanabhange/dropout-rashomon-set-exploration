@@ -4,14 +4,12 @@ import pandas as pd
 import numpy as np
 import scipy as sp
 
-##
 from time import localtime, strftime
 import time
 
-## multicore accelerating
 from itertools import islice
 import multiprocessing
-from multiprocessing import Pool
+from multiprocessing import Pool, freeze_support
 
 # helper functions
 def score_of_y(scores, y):
@@ -30,9 +28,6 @@ def score_of_y_multi_model(scores, y):
     return score_y
 
 def get_Rashomon_models_dropout(loss, loss_tol, scores):
-    # loss:     ndrp x nmodel
-    # loss_tol: scalar
-    # scores:   ndrp x nmodel x ntest x c
     ndrp = scores.shape[0]
     msk = loss <= loss_tol 
 
@@ -40,43 +35,31 @@ def get_Rashomon_models_dropout(loss, loss_tol, scores):
     for i in range(ndrp):
         msk_scores.append(scores[i, msk[i, :], :, :])
 
-    # print(len(msk_scores))
     all_msk_scores = msk_scores[0]
     for i in range(1, len(msk_scores)):
-        # print(i)
         all_msk_scores = np.concatenate((all_msk_scores, msk_scores[i]), axis=0)
 
     return all_msk_scores
 
 def get_Rashomon_models_sampling(loss, loss_tol, scores):
-    # loss:     nmodel
-    # loss_tol: scalar
-    # scores:   nmodel x ntest x c
     msk = loss < loss_tol 
-
     return scores[msk, :, :]
 
-# Multiplicity Metrics
-## Decision Based
+## Multiplicity Metrics
 def ambiguity(decisions, y):
     nsample = decisions.shape[1]
     y = y.reshape((1, nsample))
     return np.any(decisions!=y, axis=0).mean()
 
 def discrepancy(decisions, y):
-    ## y could be the true label or the output of the base model
     nsample = decisions.shape[1]
     y = y.reshape((1, nsample))
     return ((decisions!=y).mean(axis=1)).max()
 
 def disagreement_hat(decisions):
-    # nmodel = decisions.shape[0]
-    # nsample = decisions.shape[1]
-    # nclass = scores.shape[2]
     mu = decisions.mean(axis=0)
     return 4*np.multiply(mu, 1-mu)
 
-## Score Based
 def rashomon_capacity(scores):
     nmodel = scores.shape[0]
     nsample = scores.shape[1]
@@ -85,7 +68,7 @@ def rashomon_capacity(scores):
     cores = multiprocessing.cpu_count() - 1
     it = iter(range(nsample))
     ln = list(iter(lambda: tuple(islice(it, 1)), ()))  # list of indices
-    # compute in parallel
+
     with Pool(cores) as p:
         cvals = (p.map(blahut_arimoto, [scores[:, ix, :].reshape((nmodel, nclass)) for ix in ln]))
     capacity = np.array([v[0] for v in cvals])
@@ -96,8 +79,6 @@ def viable_prediction_range(scores):
     return vpr
 
 def score_variance(scores):
-    # nmodel, nsample, nclass = scores.shape[0], scores.shape[1], scores.shape[2]
-
     return scores.var(axis=0)
 
 def quantile_mean(v, q):
@@ -108,70 +89,33 @@ def quantile_mean(v, q):
 def quantile_value(v, q):
     assert q >= 0 and q <= 1
     q_value = np.quantile(v, q)
-    return q_value ## q = 0.5 => q_value = median
+    return q_value 
 
 def blahut_arimoto(Pygw, log_base=2, epsilon=1e-12, max_iter=1e3):
-    """
-    Performs the Blahut-Arimoto algorithm to compute the channel capacity
-    given a channel P_ygx.
-
-    Parameters
-    ----------
-    Pygw: shape (m, c).
-        transition matrix of the channel with m inputs and c outputs.
-    log_base: int.
-        base to compute the mutual information.
-        log_base = 2: bits, log_base = e: nats, log_base = 10: dits.
-    epsilon: float.
-        error tolerance for the algorithm to stop the iterations.
-    max_iter: int.
-        number of maximal iteration.
-    Returns
-    -------
-    Capacity: float.
-        channel capacity, or the maximum information it can be transmitted
-        given the input-output function.
-    pw: array-like.
-        array containing the discrete probability distribution for the input
-        that maximizes the channel capacity.
-    loop: int
-        the number of iteration.
-    resource: https://sites.ecse.rpi.edu/~pearlman/lec_notes/arimoto_2.pdf
-    """
-    ## check inputs
-    # assert np.abs(Pygw.sum(axis=1).mean() - 1) < 1e-6
-    # assert Pygw.shape[0] > 1
-
     m = Pygw.shape[0]
     c = Pygw.shape[1]
     Pw = np.ones((m)) / m
     for cnt in range(int(max_iter)):
-        ## q = P_wgy
         q = (Pw * Pygw.T).T
         q = q / q.sum(axis=0)
 
-        ## r = Pw
         r = np.prod(np.power(q, Pygw), axis=1)
         r = r / r.sum()
 
-        ## stoppung criteria
         if np.sum((r - Pw) ** 2) / m < epsilon:
             break
         else:
             Pw = r
 
-    ## compute capacity
     capacity = 0
     for i in range(m):
         for j in range(c):
-            ## remove negative entries
             if r[i] > 0 and q[i, j] > 0:
                 capacity += r[i] * Pygw[i, j] * np.log(q[i, j] / r[i])
 
     capacity = capacity / np.log(log_base)
     return capacity, r, cnt+1
 
-## the data structure of awp is different from the rest
 def score_of_y_multi_model_awp(scores, y):
     neps, nsample, nmodel, nclass = scores.shape[0], scores.shape[1], scores.shape[2], scores.shape[3]
     score_y = np.zeros((neps, nsample, nmodel, ))
@@ -183,13 +127,13 @@ def score_of_y_multi_model_awp(scores, y):
 
 def rashomon_capacity_awp(scores):
     nsample = scores.shape[0]
-    nmodel = scores.shape[1] ## equals to nclass
+    nmodel = scores.shape[1] 
     nclass = scores.shape[2]
 
     cores = multiprocessing.cpu_count() - 1
     it = iter(range(nsample))
-    ln = list(iter(lambda: tuple(islice(it, 1)), ()))  # list of indices
-    # compute in parallel
+    ln = list(iter(lambda: tuple(islice(it, 1)), ())) 
+
     with Pool(cores) as p:
         cvals = (p.map(blahut_arimoto, [scores[ix, :, :].reshape((nmodel, nclass)) for ix in ln]))
     capacity = np.array([v[0] for v in cvals])
@@ -202,20 +146,15 @@ def viable_prediction_range_awp(scores):
     return vpr
 
 def score_variance_awp(scores):
-    # nsample = scores.shape[0]
-    # nmodel = scores.shape[1] 
     return scores.var(axis=1)
 
 def ambiguity_awp(decisions, y):
-    # decisions: nsample * nmodels
     nsample = decisions.shape[0]
     nmodel = decisions.shape[1]
     y = y.reshape((nsample,1))
     return np.any(decisions!=y, axis=1).mean()
 
 def discrepancy_awp(decisions, y):
-    ## y could be the true label or the output of the base model
-    # nmodel = scores.shape[0]
     nsample = decisions.shape[0]
     nmodel = decisions.shape[1]
     y = y.reshape((nsample,1))
@@ -225,9 +164,7 @@ def disagreement_hat_awp(decisions):
     mu = decisions.mean(axis=1)
     return 4*np.multiply(mu, 1-mu)
 
-## for visualization
 def read_eval_results(file):
-    # results = np.load('../../../results/dropout/'+filename+'.npz')
     results = np.load(file+'.npz')
 
     eps_list = results['eps_list']
@@ -256,7 +193,6 @@ def read_eval_results(file):
     return output
 
 def read_base_results(file):
-    # base_data = np.load('../../../results/dropout/'+datasetname+'-base.npz')
     results = np.load(file+'.npz')
 
     output = {
@@ -287,4 +223,4 @@ def read_drp_results(file):
         'drp_list': results['drp_list']
     }
 
-    return output 
+    return output
